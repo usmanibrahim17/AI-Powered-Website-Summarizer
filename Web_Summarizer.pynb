@@ -1,0 +1,220 @@
+{
+ "cells": [
+  {
+   "cell_type": "code",
+   "execution_count": 64,
+   "id": "19080589-b14c-4de6-ac42-4e7e0fefa663",
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "#IMPORTS AND SETUP\n",
+    "import os\n",
+    "import requests\n",
+    "from openai import OpenAI\n",
+    "from bs4 import BeautifulSoup\n",
+    "from dotenv import load_dotenv\n",
+    "from IPython.display import Markdown, display"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 65,
+   "id": "201e9c6b-6f02-40cf-b072-97b2cd47d439",
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "#lOAD ENVIRONMENT VARIABLES\n",
+    "load_dotenv(override=True)\n",
+    "#CREATE OPENAI CLIENT\n",
+    "client = OpenAI(api_key=os.getenv(\"OPENAI_API_KEY\"))"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 67,
+   "id": "8c27dd87-6d21-4e7e-bb6e-4565a9a8ccce",
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "#WEBSITE CLASS\n",
+    "class Website:\n",
+    "    url : str\n",
+    "    title : str\n",
+    "    text : str\n",
+    "\n",
+    "    def __init__(self,url):\n",
+    "        self.url = url\n",
+    "\n",
+    "        \n",
+    "#FETCH PAGE\n",
+    "        try:\n",
+    "            response = requests.get(url,timeout=10)\n",
+    "            response.raise_for_status()\n",
+    "        except Exception as e:\n",
+    "            self.title = f\"Error fetching url\"\n",
+    "            self.text = f\"Could not fetch {url}:{e}\"\n",
+    "            return\n",
+    "#PARSE HTML\n",
+    "        soup = BeautifulSoup(response.content, \"html.parser\")\n",
+    "        self.title = soup.title.string.strip() if soup.title and soup.title.string else \"No title found\"\n",
+    "        body = soup.body\n",
+    "        if body:\n",
+    "            for tag in body.find_all([\"script\",\"style\",\"img\",\"input\"]):\n",
+    "                tag.decompose()\n",
+    "            self.text = body.get_text(separator=\"\\n\", strip=True)\n",
+    "        else:\n",
+    "            self.text = soup.get_text(separator=\"\\n\", strip=True)\n",
+    "        \n",
+    "        "
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 68,
+   "id": "30d7b416-1db4-4c4f-ba07-5a2002514a7d",
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "#SYSTEM PROMPT\n",
+    "system_prompt = (\n",
+    "    \"you are an assistant that analyzes the contents of a website \"\n",
+    "    \"and provides a short summary, ignoiring text that maybe navigational related. \"\n",
+    "    \"Respond in markdown \"\n",
+    ")"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 69,
+   "id": "b10fa4ec-c6b5-4b44-9875-3c56d1369afa",
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "#USER PROMPT\n",
+    "def user_prompt_for(website: Website) -> str:\n",
+    "    user_prompt = f\"You are looking at a website called {website.title}\\n\"\n",
+    "    user_prompt += (\n",
+    "         \"The contents of this website as follows; please provide a short summary \"\n",
+    "         \"of this website in markdown.if it includes news and announcements,then summarize these too.\\n\\n\"\n",
+    "    )\n",
+    "    user_prompt += website.text\n",
+    "    return user_prompt"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 70,
+   "id": "2ec4a067-ad04-4f67-bdb6-f1ffd06251d3",
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "def messages_for(website: Website):\n",
+    "    return[\n",
+    "        {\"role\":\"system\",\"content\":system_prompt},\n",
+    "        {\"role\":\"user\",\"content\":user_prompt_for(website)}\n",
+    "    ]"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 71,
+   "id": "781f2cca-fa04-4c92-a5f9-2e89932412ee",
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "#SUMMARIZE\n",
+    "def summarize(url: str) -> str:\n",
+    "    website = Website(url)\n",
+    "    response = client.chat.completions.create(\n",
+    "       model=\"gpt-4o-mini\",\n",
+    "       messages=messages_for(website)\n",
+    "    )\n",
+    "    try:\n",
+    "        return response.choices[0].message.content\n",
+    "    except Exception:\n",
+    "        return response.choices[0].message[\"content\"]"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 72,
+   "id": "d6564887-687f-4038-8705-7a9447743733",
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "def display_summary(url: str):\n",
+    "    summary = summarize(url)\n",
+    "    display(Markdown(summary))\n",
+    "    "
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 73,
+   "id": "e6c51c8b-c611-41ac-83ca-3b1f413a138e",
+   "metadata": {},
+   "outputs": [
+    {
+     "data": {
+      "text/markdown": [
+       "# Summary of Ai2x.org\n",
+       "\n",
+       "Ai2x.org is an organization committed to making advanced AI tools accessible to nonprofits, schools, and underserved communities, emphasizing ethical AI development to foster a more equitable future. Founded in 2023, its mission focuses on improving education and healthcare through AI, helping communities utilize technology to enhance learning, streamline operations, and protect against cyber threats.\n",
+       "\n",
+       "## Core Initiatives\n",
+       "- **AI for Enhanced Learning**: Personalizes education through AI-driven tools.\n",
+       "- **Robust Cybersecurity Solutions**: Provides protection against cyber threats for nonprofits and small businesses.\n",
+       "- **Streamline Operations with Automation**: Introduces AI to automate repetitive tasks to enhance efficiency.\n",
+       "- **Data-Driven Predictive Insights**: Offers tools for informed decision-making based on data analysis.\n",
+       "\n",
+       "## Impact\n",
+       "- Empowered over **500 nonprofits** with AI tools.\n",
+       "- Launched **10 new initiatives** for providing AI training.\n",
+       "- Engaged **200 participants** in hands-on AI training.\n",
+       "- Supported **50 community-driven projects** using AI for social good.\n",
+       "\n",
+       "Ai2x.org believes in the transformative power of AI and aims to educate and provide resources to promote its ethical development, ultimately striving for a future where AI benefits all communities."
+      ],
+      "text/plain": [
+       "<IPython.core.display.Markdown object>"
+      ]
+     },
+     "metadata": {},
+     "output_type": "display_data"
+    }
+   ],
+   "source": [
+    "display_summary(\"https://ai2x.org\")"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "id": "2e452bc3-c292-413f-9d81-a2bfbefd9ec3",
+   "metadata": {},
+   "outputs": [],
+   "source": []
+  }
+ ],
+ "metadata": {
+  "kernelspec": {
+   "display_name": "Python 3 (ipykernel)",
+   "language": "python",
+   "name": "python3"
+  },
+  "language_info": {
+   "codemirror_mode": {
+    "name": "ipython",
+    "version": 3
+   },
+   "file_extension": ".py",
+   "mimetype": "text/x-python",
+   "name": "python",
+   "nbconvert_exporter": "python",
+   "pygments_lexer": "ipython3",
+   "version": "3.11.13"
+  }
+ },
+ "nbformat": 4,
+ "nbformat_minor": 5
+}
